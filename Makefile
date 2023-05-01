@@ -8,7 +8,6 @@ help:
 	@echo "lint - check style with flake8"
 	@echo "lint-roll - automatically fix problems with isort, flake8, etc"
 	@echo "test - run tests quickly with the default Python"
-	@echo "testall - run tests on every Python version with tox"
 	@echo "docs - generate docs and open in browser (linux-docs for version on linux)"
 	@echo "notes - consume towncrier newsfragments/ and update release notes in docs/"
 	@echo "release - package and upload a release (does not run notes target)"
@@ -28,30 +27,33 @@ clean-pyc:
 	find . -name '__pycache__' -exec rm -rf {} +
 
 lint:
-	tox -elint
+	tox run -e lint
 
 lint-roll:
-	isort --recursive eth_account tests
+	isort eth_account tests
+	black eth_account tests setup.py
 	$(MAKE) lint
 
 test:
-	pytest tests
-
-test-all:
-	tox
+	coverage run -m pytest tests
+	coverage report
 
 build-docs:
 	sphinx-apidoc -o docs/ . setup.py "*conftest*"
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
 	$(MAKE) -C docs doctest
-	./newsfragments/validate_files.py
-	towncrier --draft --version preview
 
-docs: build-docs
+validate-docs:
+	python ./newsfragments/validate_files.py
+	towncrier build --draft --version preview
+
+check-docs: build-docs validate-docs
+
+docs: check-docs
 	open docs/_build/html/index.html
 
-linux-docs: build-docs
+linux-docs: check-docs
 	xdg-open docs/_build/html/index.html
 
 check-bump:
@@ -63,7 +65,7 @@ notes: check-bump
 	# Let UPCOMING_VERSION be the version that is used for the current bump
 	$(eval UPCOMING_VERSION=$(shell bumpversion $(bump) --dry-run --list | grep new_version= | sed 's/new_version=//g'))
 	# Now generate the release notes to have them included in the release commit
-	towncrier --yes --version $(UPCOMING_VERSION)
+	towncrier build --yes --version $(UPCOMING_VERSION)
 	# Before we bump the version, make sure that the towncrier-generated docs will build
 	make build-docs
 	git commit -m "Compile release notes"
@@ -78,11 +80,11 @@ release: check-bump clean
 	git config commit.gpgSign true
 	bumpversion $(bump)
 	git push upstream && git push upstream --tags
-	python setup.py sdist bdist_wheel
+	python -m build
 	twine upload dist/*
 	git config commit.gpgSign "$(CURRENT_SIGN_SETTING)"
 
 
 dist: clean
-	python setup.py sdist bdist_wheel
+	python -m build
 	ls -l dist
